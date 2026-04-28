@@ -1,5 +1,5 @@
 # =============================
-#   Security Groups
+#   Security Groups - Updated
 # =============================
 
 # 1. Public ALB Security Group
@@ -56,8 +56,8 @@ resource "aws_security_group" "web_ec2" {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]   # Change to your IP later for better security
-    description = "Allow SSH from anywhere (temporary)"
+    cidr_blocks = ["106.214.2.172/32"]   # Your IP only
+    description = "Allow SSH from my IP only"
   }
 
   egress {
