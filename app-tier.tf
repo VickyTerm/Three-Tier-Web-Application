@@ -1,5 +1,5 @@
 # =============================================
-#   App Tier - Internal ALB + Node.js EC2
+#   App Tier - Internal ALB + Node.js Express
 # =============================================
 
 # 1. Internal Application Load Balancer
@@ -8,7 +8,9 @@ resource "aws_lb" "internal_alb" {
   internal           = true
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb_internal.id]
-  subnets            = module.vpc.private_subnets
+  subnets            = module.vpc.private_subnets   # Use all private subnets (should be your App tier subnets)
+
+  enable_deletion_protection = false
 
   tags = {
     Name        = "${var.project_name}-internal-alb"
@@ -17,7 +19,7 @@ resource "aws_lb" "internal_alb" {
   }
 }
 
-# 2. Target Group for Node.js (port 8080)
+# 2. Target Group
 resource "aws_lb_target_group" "app_tg" {
   name     = "${var.project_name}-app-tg"
   port     = 8080
@@ -41,10 +43,10 @@ resource "aws_lb_target_group" "app_tg" {
   }
 }
 
-# 3. Listener for Internal ALB
+# 3. Listener
 resource "aws_lb_listener" "internal_http" {
   load_balancer_arn = aws_lb.internal_alb.arn
-  port              = "8080"
+  port              = 80
   protocol          = "HTTP"
 
   default_action {
@@ -53,99 +55,64 @@ resource "aws_lb_listener" "internal_http" {
   }
 }
 
-# 4. App Tier EC2 Instances (Node.js)
-resource "aws_instance" "app_ec2" {
-  count = 2
+# 4. Launch Template
+data "aws_ami" "amazon_linux_2023" {
+  most_recent = true
+  owners      = ["amazon"]
 
-  ami                         = "ami-0d682f26195e9ec0f"
-  instance_type               = "t3.micro"
-  subnet_id                   = module.vpc.private_subnets[count.index]
-  vpc_security_group_ids      = [aws_security_group.app_ec2.id]
-  associate_public_ip_address = false
-
-  # NOTE: $${} escapes Terraform interpolation so the $ reaches the shell/JS at runtime
-  user_data = <<-EOF
-              #!/bin/bash
-              dnf update -y
-              dnf install -y nodejs npm
-
-              mkdir -p /home/ec2-user/app
-              cat << 'NODEAPP' > /home/ec2-user/app/server.js
-              const express = require('express');
-              const app = express();
-              const port = 8080;
-
-              app.get('/', (req, res) => {
-                res.json({
-                  message: "Hello from App Tier - Node.js Express",
-                  instance: process.env.INSTANCE_ID || "Unknown",
-                  tier: "App Tier",
-                  timestamp: new Date().toISOString()
-                });
-              });
-
-              app.get('/health', (req, res) => {
-                res.status(200).send('OK');
-              });
-
-              app.listen(port, () => {
-                console.log(`App Tier running on port $${port}`);
-              });
-              NODEAPP
-
-              # Get instance ID from EC2 metadata
-              INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
-
-              cd /home/ec2-user/app
-              npm init -y
-              npm install express
-
-              # Create systemd service
-              cat << 'SERVICE' > /etc/systemd/system/nodeapp.service
-              [Unit]
-              Description=Node.js App Tier Service
-              After=network.target
-
-              [Service]
-              User=ec2-user
-              WorkingDirectory=/home/ec2-user/app
-              ExecStart=/usr/bin/node server.js
-              Restart=always
-              Environment=INSTANCE_ID=$${INSTANCE_ID}
-
-              [Install]
-              WantedBy=multi-user.target
-              SERVICE
-
-              systemctl daemon-reload
-              systemctl enable nodeapp
-              systemctl start nodeapp
-
-              echo "Node.js App Tier deployment completed successfully"
-              EOF
-
-  tags = {
-    Name        = "${var.project_name}-app-ec2-${count.index + 1}"
-    Tier        = "App"
-    Environment = "dev"
+  filter {
+    name   = "name"
+    values = ["al2023-ami-2023.*-x86_64"]
   }
 }
 
-# 5. Attach App EC2 to Target Group
-resource "aws_lb_target_group_attachment" "app_tg_attachment" {
-  count            = 2
-  target_group_arn = aws_lb_target_group.app_tg.arn
-  target_id        = aws_instance.app_ec2[count.index].id
-  port             = 8080
+resource "aws_launch_template" "app_lt" {
+  name_prefix   = "${var.project_name}-app-lt-"
+  image_id      = data.aws_ami.amazon_linux_2023.id
+  instance_type = "t3.micro"
+  key_name      = "three-tier-app-web-key"
+
+  vpc_security_group_ids = [aws_security_group.app_ec2.id]
+
+  user_data = base64encode(file("${path.module}/scripts/app_user_data.sh"))
+
+  tag_specifications {
+    resource_type = "instance"
+    tags = {
+      Name        = "${var.project_name}-app"
+      Tier        = "App"
+      Environment = "dev"
+    }
+  }
+}
+
+# 5. Auto Scaling Group
+resource "aws_autoscaling_group" "app_asg" {
+  name                = "${var.project_name}-app-asg"
+  vpc_zone_identifier = module.vpc.private_subnets
+
+  min_size         = 2
+  desired_capacity = 2
+  max_size         = 4
+
+  launch_template {
+    id      = aws_launch_template.app_lt.id
+    version = "$Latest"
+  }
+
+  target_group_arns         = [aws_lb_target_group.app_tg.arn]
+  health_check_type         = "ELB"
+  health_check_grace_period = 180
+
+  tag {
+    key                 = "Name"
+    value               = "${var.project_name}-app-asg"
+    propagate_at_launch = true
+  }
 }
 
 # Outputs
 output "internal_alb_dns" {
   value       = aws_lb.internal_alb.dns_name
-  description = "Internal ALB DNS Name"
-}
-
-output "app_ec2_private_ips" {
-  value       = aws_instance.app_ec2[*].private_ip
-  description = "Private IPs of App Tier Instances"
+  description = "Internal ALB DNS Name - Use this in Web tier Nginx proxy_pass"
 }

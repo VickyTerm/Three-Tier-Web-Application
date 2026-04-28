@@ -80,12 +80,13 @@ resource "aws_security_group" "alb_internal" {
   description = "Security group for Internal ALB (App tier)"
   vpc_id      = module.vpc.vpc_id
 
+  # Allow Web Tier to Internal ALB on port 80 (Listener Port)
   ingress {
-    from_port       = 8080
-    to_port         = 8080
+    from_port       = 80
+    to_port         = 80
     protocol        = "tcp"
     security_groups = [aws_security_group.web_ec2.id]
-    description     = "Allow traffic from Web tier EC2"
+    description     = "Allow HTTP from Web tier EC2 to Internal ALB"
   }
 
   egress {
@@ -108,12 +109,22 @@ resource "aws_security_group" "app_ec2" {
   description = "Security group for App tier EC2 instances"
   vpc_id      = module.vpc.vpc_id
 
+  # Allow Internal ALB to reach Node.js app on port 8080
   ingress {
     from_port       = 8080
     to_port         = 8080
     protocol        = "tcp"
     security_groups = [aws_security_group.alb_internal.id]
-    description     = "Allow traffic from Internal ALB"
+    description     = "Allow Internal ALB to App EC2 on 8080"
+  }
+
+  # Optional: SSH access (restricted to your IP)
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["106.214.2.172/32"]   # Your current IP
+    description = "Allow SSH from my IP only"
   }
 
   egress {
@@ -126,34 +137,6 @@ resource "aws_security_group" "app_ec2" {
   tags = {
     Name        = "${var.project_name}-app-ec2"
     Tier        = "App"
-    Environment = "dev"
-  }
-}
-
-# 5. RDS Security Group
-resource "aws_security_group" "rds" {
-  name        = "${var.project_name}-rds"
-  description = "Security group for RDS MySQL"
-  vpc_id      = module.vpc.vpc_id
-
-  ingress {
-    from_port       = 3306
-    to_port         = 3306
-    protocol        = "tcp"
-    security_groups = [aws_security_group.app_ec2.id]
-    description     = "Allow MySQL from App tier EC2"
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name        = "${var.project_name}-rds"
-    Tier        = "Database"
     Environment = "dev"
   }
 }

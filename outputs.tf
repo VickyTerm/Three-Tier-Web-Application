@@ -29,26 +29,35 @@ output "nat_gateway_ids" {
 
 # Security Groups Outputs
 output "sg_alb_public_id" {
-  value       = aws_security_group.alb_public.id
+  value = aws_security_group.alb_public.id
   description = "Public ALB Security Group ID"
 }
 
 output "sg_web_ec2_id" {
-  value       = aws_security_group.web_ec2.id
+  value = aws_security_group.web_ec2.id
   description = "Web EC2 Security Group ID"
 }
 
 output "sg_alb_internal_id" {
-  value       = aws_security_group.alb_internal.id
+  value = aws_security_group.alb_internal.id
   description = "Internal ALB Security Group ID"
 }
 
 output "sg_app_ec2_id" {
-  value       = aws_security_group.app_ec2.id
+  value = aws_security_group.app_ec2.id
   description = "App EC2 Security Group ID"
 }
 
-output "sg_rds_id" {
-  value       = aws_security_group.rds.id
-  description = "RDS MySQL Security Group ID"
+# Temporarily commented because RDS SG is causing issues
+# output "sg_rds_id" {
+#   value       = aws_security_group.rds.id
+#   description = "RDS MySQL Security Group ID"
+# }
+output "rds_password" {
+  value     = module.rds.db_password
+  sensitive = true
+}
+
+output "rds_endpoint" {
+  value = module.rds.db_endpoint
 }

@@ -26,3 +26,12 @@ module "vpc" {
     Project     = var.project_name
   }
 }
+module "rds" {
+  source = "./modules/rds"
+
+  project_name = var.project_name
+  db_subnet_ids = module.vpc.database_subnets
+  vpc_id = module.vpc.vpc_id
+
+  app_sg_id = aws_security_group.app_ec2.id
+}

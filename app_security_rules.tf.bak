@@ -1,0 +1,32 @@
+# 1. Internal ALB → App EC2 (port 8080)
+resource "aws_security_group_rule" "internal_alb_to_app_ec2" {
+  type                     = "ingress"
+  from_port                = 8080
+  to_port                  = 8080
+  protocol                 = "tcp"
+  security_group_id        = var.app_ec2_sg_id
+  source_security_group_id = var.alb_internal_sg_id
+  description              = "Internal ALB to App EC2 on 8080"
+}
+
+# 2. Web EC2 → Internal ALB (port 80)
+resource "aws_security_group_rule" "web_ec2_to_internal_alb" {
+  type                     = "ingress"
+  from_port                = 80
+  to_port                  = 80
+  protocol                 = "tcp"
+  security_group_id        = var.alb_internal_sg_id
+  source_security_group_id = var.web_ec2_sg_id
+  description              = "Web EC2 to Internal ALB on port 80"
+}
+
+# Optional: SSH to App tier (restrict to your IP only)
+resource "aws_security_group_rule" "app_ssh_from_my_ip" {
+  type              = "ingress"
+  from_port         = 22
+  to_port           = 22
+  protocol          = "tcp"
+  security_group_id = var.app_ec2_sg_id
+  cidr_blocks       = ["YOUR_CURRENT_PUBLIC_IP/32"]   # ← Update with your IP
+  description       = "SSH to App tier - restricted"
+}
